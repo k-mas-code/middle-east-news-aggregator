@@ -1,0 +1,120 @@
+.report-detail {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 1.5rem;
+  color: #2196f3;
+  text-decoration: none;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.report-header {
+  margin-bottom: 2rem;
+  border-bottom: 2px solid #e0e0e0;
+  padding-bottom: 1rem;
+}
+
+.report-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+}
+
+.report-info {
+  display: flex;
+  gap: 1.5rem;
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.report-summary, .bias-comparison, .articles, .entities {
+  margin-bottom: 2.5rem;
+}
+
+.report-summary h2, .bias-comparison h2, .articles h2, .entities h2 {
+  color: #333;
+  margin-bottom: 1rem;
+}
+
+.media-section {
+  margin-bottom: 2rem;
+}
+
+.media-section h3 {
+  color: #2196f3;
+  text-transform: capitalize;
+  margin-bottom: 1rem;
+}
+
+.article {
+  background: #f9f9f9;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.article h4 {
+  margin: 0 0 0.5rem 0;
+  color: #333;
+}
+
+.article-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  color: #666;
+}
+
+.article-meta a {
+  color: #2196f3;
+  text-decoration: none;
+}
+
+.article-meta a:hover {
+  text-decoration: underline;
+}
+
+.article p {
+  margin: 0;
+  line-height: 1.6;
+  color: #555;
+}
+
+.bias-chart {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.bias-labels {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.bias-label {
+  font-size: 0.9rem;
+}
+
+.entity-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.entity-tag {
+  display: inline-block;
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 0.4rem 0.8rem;
+  border-radius: 16px;
+  font-size: 0.85rem;
+}
