@@ -33,22 +33,24 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder
-COPY --from=builder /root/.local /root/.local
+# Create non-root user for security
+RUN useradd -m -u 1000 appuser
+
+# Copy Python packages from builder to appuser's home
+COPY --from=builder /root/.local /home/appuser/.local
 
 # Make sure scripts in .local are usable
-ENV PATH=/root/.local/bin:$PATH
+ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Copy application code
 COPY middle_east_aggregator/ ./middle_east_aggregator/
 
+# Set ownership
+RUN chown -R appuser:appuser /app /home/appuser/.local
+
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8080
-
-# Create non-root user for security
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
 
 USER appuser
 
