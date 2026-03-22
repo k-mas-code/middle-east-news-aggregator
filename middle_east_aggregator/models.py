@@ -39,6 +39,10 @@ class Article:
     media_name: Literal["aljazeera", "reuters", "bbc"]
     is_middle_east: bool
     collected_at: datetime
+    title_ja: str | None = None  # Japanese title
+    content_ja: str | None = None  # Japanese content summary
+    char_count_input: int = 0  # Input characters sent to API for this article
+    translation_status: Literal["pending", "success", "failed", "skipped"] = "pending"
 
 
 @dataclass

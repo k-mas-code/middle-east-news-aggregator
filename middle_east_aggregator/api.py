@@ -14,6 +14,8 @@ from pydantic import BaseModel, Field
 from middle_east_aggregator.database import ArticleRepository, ReportRepository
 from middle_east_aggregator.pipeline import NewsPipeline
 from middle_east_aggregator.models import Article, Report, Cluster, ComparisonResult, SentimentResult, Entity
+from middle_east_aggregator.translation_quota import QuotaTracker
+from middle_east_aggregator.translation_config import TranslationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,10 @@ class ArticleResponse(BaseModel):
     media_name: str
     is_middle_east: bool
     collected_at: datetime
+    title_ja: Optional[str] = None
+    content_ja: Optional[str] = None
+    char_count_input: int = 0
+    translation_status: str = "pending"
 
 
 class ClusterResponse(BaseModel):
@@ -116,7 +122,11 @@ def article_to_response(article: Article) -> ArticleResponse:
         published_at=article.published_at,
         media_name=article.media_name,
         is_middle_east=article.is_middle_east,
-        collected_at=article.collected_at
+        collected_at=article.collected_at,
+        title_ja=article.title_ja,
+        content_ja=article.content_ja,
+        char_count_input=article.char_count_input,
+        translation_status=article.translation_status
     )
 
 
@@ -367,6 +377,93 @@ async def trigger_collection():
         raise HTTPException(status_code=500, detail=f"Collection failed: {str(e)}")
 
 
+class QuotaStatusResponse(BaseModel):
+    """Translation quota status response."""
+    month: str
+    total_limit: int
+    safe_limit: int
+    monthly_usage: int
+    monthly_usage_percent: float
+    daily_usage: int
+    daily_limit: int
+    articles_translated_month: int
+    remaining_chars: int
+    status: str
+    recommendations: List[str]
+    config: dict
+
+
+@app.get("/api/admin/quota-status", response_model=QuotaStatusResponse)
+async def get_quota_status():
+    """
+    Get translation quota status and usage statistics.
+
+    Returns:
+        Current quota usage, limits, and recommendations
+
+    Admin endpoint for monitoring translation API usage
+    """
+    try:
+        quota_tracker = QuotaTracker()
+        status = quota_tracker.get_quota_status()
+        daily_usage = quota_tracker.get_daily_usage()
+        recommendations = quota_tracker.get_recommendations(status)
+
+        return QuotaStatusResponse(
+            month=status.month,
+            total_limit=TranslationConfig.MONTHLY_LIMIT_CHARS,
+            safe_limit=TranslationConfig.get_safe_limit_chars(),
+            monthly_usage=status.usage,
+            monthly_usage_percent=status.usage_percent,
+            daily_usage=daily_usage,
+            daily_limit=TranslationConfig.DAILY_LIMIT_CHARS,
+            articles_translated_month=status.article_count,
+            remaining_chars=status.remaining_chars,
+            status=status.status,
+            recommendations=recommendations,
+            config=TranslationConfig.to_dict()
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching quota status: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch quota status")
+
+
+class QuotaForecastResponse(BaseModel):
+    """Translation quota usage forecast response."""
+    current_usage: int
+    current_day: int
+    days_in_month: int
+    days_remaining: int
+    daily_average: int
+    forecast_month_end: int
+    forecast_percent: float
+    safe_limit: int
+    risk_level: str
+    recommendation: str
+
+
+@app.get("/api/admin/quota-forecast", response_model=QuotaForecastResponse)
+async def get_quota_forecast():
+    """
+    Get translation quota usage forecast for month-end.
+
+    Returns:
+        Forecast based on current usage trends with risk assessment
+
+    Admin endpoint for proactive quota management
+    """
+    try:
+        quota_tracker = QuotaTracker()
+        forecast = quota_tracker.get_usage_forecast()
+
+        return QuotaForecastResponse(**forecast)
+
+    except Exception as e:
+        logger.error(f"Error generating quota forecast: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate forecast")
+
+
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
@@ -379,7 +476,9 @@ async def root():
             "search": "/api/reports/search?q={keyword}",
             "articles": "/api/articles",
             "status": "/api/status",
-            "collect": "/api/collect (POST)"
+            "collect": "/api/collect (POST)",
+            "quota_status": "/api/admin/quota-status",
+            "quota_forecast": "/api/admin/quota-forecast"
         }
     }
 

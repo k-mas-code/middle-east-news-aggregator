@@ -19,6 +19,9 @@ from middle_east_aggregator.clusterer import TopicClusterer
 from middle_east_aggregator.analyzer import BiasAnalyzer
 from middle_east_aggregator.database import ArticleRepository, ReportRepository
 from middle_east_aggregator.models import Article, RawArticle
+from middle_east_aggregator.translation_config import TranslationConfig, TranslationMode
+from middle_east_aggregator.translation_quota import QuotaTracker
+from middle_east_aggregator.translator import Translator
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +51,10 @@ class NewsPipeline:
         self.article_repo = ArticleRepository()
         self.report_repo = ReportRepository()
 
+        # Translation components
+        self.quota_tracker = QuotaTracker()
+        self.translator = Translator(quota_tracker=self.quota_tracker)
+
         logger.info("Pipeline initialized with all components")
 
     def run(self) -> dict:
@@ -65,6 +72,8 @@ class NewsPipeline:
             'started_at': start_time,
             'articles_collected': 0,
             'articles_filtered': 0,
+            'articles_translated': 0,
+            'translation_chars_used': 0,
             'clusters_created': 0,
             'reports_generated': 0,
             'articles_saved': 0,
@@ -97,39 +106,45 @@ class NewsPipeline:
                 result['status'] = 'no_relevant_articles'
                 return result
 
-            # Step 3: Save filtered articles to database
-            logger.info("Step 3: Saving articles to database")
+            # Step 3: Translate articles (if quota allows)
+            logger.info("Step 3: Translating articles to Japanese")
+            translated_count, chars_used = self._translate_articles(filtered_articles)
+            result['articles_translated'] = translated_count
+            result['translation_chars_used'] = chars_used
+            logger.info(f"Translated {translated_count} articles ({chars_used} chars used)")
+
+            # Step 4: Save filtered articles to database
+            logger.info("Step 4: Saving articles to database")
             saved_count = self._save_articles(filtered_articles)
             result['articles_saved'] = saved_count
             logger.info(f"Saved {saved_count} articles to database")
 
-            # Step 4: Cluster articles by topic
-            logger.info("Step 4: Clustering articles by topic")
+            # Step 5: Cluster articles by topic
+            logger.info("Step 5: Clustering articles by topic")
             clusters = self.clusterer.cluster(filtered_articles)
             result['clusters_created'] = len(clusters)
             logger.info(f"Created {len(clusters)} topic clusters")
 
-            if not clusters:
-                logger.warning("No clusters created")
-                return result
-
-            # Step 5: Analyze clusters and generate reports
-            logger.info("Step 5: Analyzing clusters and generating reports")
+            # Step 6: Analyze clusters and generate reports
             reports = []
-            for cluster in clusters:
-                try:
-                    report = self.analyzer.analyze(cluster)
-                    reports.append(report)
-                except Exception as e:
-                    logger.error(f"Error analyzing cluster {cluster.id}: {e}")
-                    result['errors'].append(str(e))
+            if clusters:
+                logger.info("Step 6: Analyzing clusters and generating reports")
+                for cluster in clusters:
+                    try:
+                        report = self.analyzer.analyze(cluster)
+                        reports.append(report)
+                    except Exception as e:
+                        logger.error(f"Error analyzing cluster {cluster.id}: {e}")
+                        result['errors'].append(str(e))
+                logger.info(f"Generated {len(reports)} analysis reports")
+            else:
+                logger.warning("No clusters created, skipping report generation")
 
             result['reports_generated'] = len(reports)
             result['reports'] = reports
-            logger.info(f"Generated {len(reports)} analysis reports")
 
-            # Step 6: Save reports to database
-            logger.info("Step 6: Saving reports to database")
+            # Step 7: Save reports to database
+            logger.info("Step 7: Saving reports to database")
             reports_saved = self._save_reports(reports)
             result['reports_saved'] = reports_saved
             logger.info(f"Saved {reports_saved} reports to database")
@@ -242,3 +257,102 @@ class NewsPipeline:
                 logger.error(f"Error saving report {report.id}: {e}")
 
         return saved_count
+
+    def _select_translation_mode(self) -> TranslationMode:
+        """
+        Select translation mode based on current quota usage.
+
+        Returns:
+            TranslationMode to use for this pipeline run
+        """
+        status = self.quota_tracker.get_quota_status()
+        usage_percent = status.usage_percent
+
+        if usage_percent >= TranslationConfig.DISABLE_ON_QUOTA_PERCENT:
+            logger.warning(f"Usage at {usage_percent:.1%}, translation disabled")
+            return TranslationMode.DISABLED
+
+        elif usage_percent >= 0.85:
+            logger.warning(f"Usage at {usage_percent:.1%}, degrading to titles only")
+            return TranslationMode.TITLES_ONLY
+
+        elif usage_percent >= 0.80:
+            logger.info(f"Usage at {usage_percent:.1%}, using titles and summary")
+            return TranslationMode.TITLES_AND_SUMMARY
+
+        else:
+            # Use configured default mode
+            return TranslationConfig.get_default_mode()
+
+    def _translate_articles(self, articles: list[Article]) -> tuple[int, int]:
+        """
+        Translate articles based on quota and mode.
+
+        Args:
+            articles: List of articles to translate
+
+        Returns:
+            Tuple of (translated_count, total_chars_used)
+        """
+        # Select translation mode based on current quota
+        mode = self._select_translation_mode()
+
+        if mode == TranslationMode.DISABLED:
+            logger.info("Translation disabled due to quota limits")
+            for article in articles:
+                article.translation_status = "skipped"
+            return 0, 0
+
+        translated_count = 0
+        total_chars_used = 0
+
+        for article in articles:
+            try:
+                # Pre-count chars to check if we can translate
+                if mode == TranslationMode.TITLES_ONLY:
+                    estimated_chars = len(article.title)
+                elif mode == TranslationMode.TITLES_AND_SUMMARY:
+                    estimated_chars = len(article.title) + min(500, len(article.content))
+                else:  # FULL
+                    estimated_chars = len(article.title) + min(
+                        TranslationConfig.MAX_CHARS_PER_ARTICLE,
+                        len(article.content)
+                    )
+
+                # Check quota before translating
+                if not self.quota_tracker.can_translate(estimated_chars):
+                    logger.warning(
+                        f"Quota limit reached, skipping translation for article {article.id}"
+                    )
+                    article.translation_status = "skipped"
+                    continue
+
+                # Translate article
+                title_ja, content_ja, char_count = self.translator.translate_article(
+                    article.title,
+                    article.content,
+                    mode
+                )
+
+                # Update article with translations
+                article.title_ja = title_ja
+                article.content_ja = content_ja
+                article.char_count_input = char_count
+                article.translation_status = "success" if char_count > 0 else "skipped"
+
+                # Record usage in quota tracker
+                if char_count > 0:
+                    self.quota_tracker.record_translation(
+                        char_count=char_count,
+                        article_id=article.id,
+                        translation_mode=mode.value,
+                        success=True
+                    )
+                    translated_count += 1
+                    total_chars_used += char_count
+
+            except Exception as e:
+                logger.error(f"Error translating article {article.id}: {e}")
+                article.translation_status = "failed"
+
+        return translated_count, total_chars_used

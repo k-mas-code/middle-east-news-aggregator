@@ -306,3 +306,20 @@ def mock_firestore_env(monkeypatch):
     """
     monkeypatch.setenv("FIRESTORE_EMULATOR_HOST", "localhost:8080")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+
+@pytest.fixture(autouse=True)
+def mock_translation_client():
+    """
+    Automatically mock Google Cloud Translation API client for all tests.
+
+    Prevents tests from requiring GCP credentials.
+    """
+    with patch("middle_east_aggregator.translator.translate.Client") as mock_client:
+        # Mock successful translation
+        mock_instance = mock_client.return_value
+        mock_instance.translate.return_value = {
+            "translatedText": "翻訳されたテキスト",
+            "detectedSourceLanguage": "en"
+        }
+        yield mock_client
