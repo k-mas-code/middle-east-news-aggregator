@@ -12,6 +12,8 @@ jobs:
   deploy-backend:
     name: Deploy Backend to Cloud Run
     runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.get-url.outputs.url }}
 
     steps:
       - name: Checkout code
