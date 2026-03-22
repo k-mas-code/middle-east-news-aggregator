@@ -46,6 +46,10 @@ htmlcov/
 # GCP Credentials
 *.json
 !firebase.json
+!frontend/package.json
+!frontend/package-lock.json
+!**/tsconfig*.json
+!**/vite.config.json
 
 # Logs
 *.log
