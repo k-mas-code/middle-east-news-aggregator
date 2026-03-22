@@ -93,7 +93,6 @@ jobs:
           projectId: ${{ secrets.GCP_PROJECT_ID }}
           channelId: live
           entryPoint: .
-          target: production
 
   notify:
     name: Deployment Notification
